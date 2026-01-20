@@ -153,6 +153,8 @@ fork(void)
   // Clear %rax so that fork returns 0 in the child.
   np->tf->rax = 0;
 
+  np->trace_mask = proc->trace_mask;
+
   for(i = 0; i < NOFILE; i++)
     if(proc->ofile[i])
       np->ofile[i] = filedup(proc->ofile[i]);

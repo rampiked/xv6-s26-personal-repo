@@ -122,6 +122,7 @@ extern addr_t sys_unlink(void);
 extern addr_t sys_wait(void);
 extern addr_t sys_write(void);
 extern addr_t sys_uptime(void);
+extern addr_t sys_trace(void);
 
 // PAGEBREAK!
 static addr_t (*syscalls[])(void) = {
@@ -146,20 +147,55 @@ static addr_t (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
 };
 
 void
 syscall(struct trapframe *tf)
 {
-  proc->tf = tf;
-  uint64 num = proc->tf->rax;
-  if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
-    tf->rax = syscalls[num]();
-  } else {
-    cprintf("%d %s: unknown sys call %d\n",
-            proc->pid, proc->name, num);
-    tf->rax = -1;
-  }
-  if (proc->killed)
-    exit();
+    proc->tf = tf;
+    uint64 num = proc->tf->rax;
+
+    if (num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+        // Call the syscall
+        tf->rax = syscalls[num]();
+
+        // --- TRACE OUTPUT ---
+        if(proc->trace_mask & (1 << num)) {
+            static char *syscall_names[] = {
+                [SYS_fork]    = "fork",
+                [SYS_exit]    = "exit",
+                [SYS_wait]    = "wait",
+                [SYS_pipe]    = "pipe",
+                [SYS_read]    = "read",
+                [SYS_kill]    = "kill",
+                [SYS_exec]    = "exec",
+                [SYS_fstat]   = "fstat",
+                [SYS_chdir]   = "chdir",
+                [SYS_dup]     = "dup",
+                [SYS_getpid]  = "getpid",
+                [SYS_sbrk]    = "sbrk",
+                [SYS_sleep]   = "sleep",
+                [SYS_uptime]  = "uptime",
+                [SYS_open]    = "open",
+                [SYS_write]   = "write",
+                [SYS_mknod]   = "mknod",
+                [SYS_unlink]  = "unlink",
+                [SYS_link]    = "link",
+                [SYS_mkdir]   = "mkdir",
+                [SYS_close]   = "close",
+                [SYS_trace]   = "trace"
+            };
+            cprintf("%d: syscall %s -> %d\n", proc->pid, syscall_names[num], tf->rax);
+        }
+
+    } else {
+        // Invalid syscall
+        cprintf("%d %s: unknown sys call %d\n",
+                proc->pid, proc->name, num);
+        tf->rax = -1;
+    }
+
+    if (proc->killed)
+        exit();
 }
