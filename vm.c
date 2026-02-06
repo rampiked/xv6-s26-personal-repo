@@ -468,12 +468,45 @@ copyout(pml4e_t *pgdir, addr_t va, void *p, uint64 len)
   return 0;
 }
 
+uint64 block_size(int level) {
+    switch(level) {
+        case 4: return 512ULL*1024*1024*1024; // PML4 entry covers 512 GB
+        case 3: return 1ULL*1024*1024*1024;   // PDPT entry covers 1 GB
+        case 2: return 2ULL*1024*1024;        // PD entry covers 2 MB
+        case 1: return 4ULL*1024;             // PT entry covers 4 KB
+        default: return 0;
+    }
+}
+
+void 
+walk_pagetable_recursive(pml4e_t *table, int level, uint64 base_va, int indent_level){
+  //Each page table has 512 entries.
+  for(int i = 0; i < 512; i++){
+    pml4e_t entry = table[i];
+    //If the lowest bit is not 1, ignore this entry.
+    if (!(entry & PTE_P)) continue;
+
+    uint64 pa = PTE_ADDR(entry); // physical address of next-level table or page frame
+
+    // Print indentation
+    for(int j = 0; j < indent_level; j++) cprintf(" ..");
+
+    cprintf("0x%p: pte 0x%p pa 0x%p\n", base_va + i*block_size(level), entry, pa);
+
+    // Only recurse if this entry is present AND not a large page
+    if (level > 1 && !(entry & PTE_PS)) {
+        pml4e_t *next_table = (pml4e_t*)P2V(pa);
+        walk_pagetable_recursive(next_table, level - 1, base_va + i*block_size(level), indent_level + 1);
+    }
+  }
+}
+
 void
 walk_pagetable(pml4e_t *pml4)
 {
   cprintf("page table pml4 va 0x%p (pa 0x%x)\n", pml4, V2P((void*)pml4));
   // TODO: Your solution goes here
-  cprintf("TODO: Not implemented yet.\n");
+  walk_pagetable_recursive(pml4, 4, 0, 0);
 }
 
 // print the memory for the current process
