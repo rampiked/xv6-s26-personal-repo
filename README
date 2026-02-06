@@ -1,3 +1,10 @@
+This particular repository is Matt Sagat's work from his semester in CS 461.
+Each branch shows the work done for that particular homework assignment.
+hw1 - Wrote utilities/commands time.c, pingpong.c, and a new trace system call for 
+following processes.
+hw2 - Implemented "vmprint heap" functionality, which will print a representation
+of the page table hierarchy.
+
 xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
 Version 6 (v6).  xv6 loosely follows the structure and style of v6,
 but is implemented for a modern x86-based multiprocessor using ANSI C.
