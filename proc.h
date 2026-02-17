@@ -1,3 +1,5 @@
+#include "spinlock.h"
+
 // Per-CPU state
 struct cpu {
   uchar id;
@@ -68,3 +70,11 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+
+// Globally accessible ptable.
+struct ptable_s {
+  struct spinlock lock;
+  struct proc proc[NPROC];
+};
+
+extern struct ptable_s ptable;

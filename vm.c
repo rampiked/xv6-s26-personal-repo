@@ -472,7 +472,105 @@ copyout(pml4e_t *pgdir, addr_t va, void *p, uint64 len)
 void
 dedup(void *vstart, void *vend)
 {
-  cprintf("didn't dedup anything\n");
+  struct proc *p;
+
+  // Array of characters with length total pages in the system. Each element represents one page.
+  static char checksum_done[PHYSTOP / PGSIZE];
+  // Set every page value to 0 (unchecked)
+  memset(checksum_done, 0, sizeof(checksum_done));
+
+  // ptable.proc is the array of all process structures.
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // If a process structure entry is unused, we skip it.
+    if(p->state == UNUSED)
+      continue;
+
+    // p->sz is the process memory in bytes.
+    for(addr_t va = PGSIZE; va < p->sz; va += PGSIZE) {
+
+      // pte points to the entry mapping va to a physical address.
+      pte_t *pte = walkpgdir(p->pgdir, (void*)va, 0);
+
+      // Skip invalid page table entries
+      if(pte == 0)
+        continue;
+      if(!(*pte & PTE_P))
+        continue;
+      if(!(*pte & PTE_U))   // only dedup user pages
+        continue;
+
+      // Extracts physical address from page table entry.
+      addr_t pa = PTE_ADDR(*pte);
+      // Converts physical address to page index.
+      int idx = PGINDEX(pa);
+
+      // Update checksum only once per frame, mark it done.
+      if(!checksum_done[idx]) {
+        update_checksum(pa);
+        checksum_done[idx] = 1;
+      }
+    }
+  }
+
+  // For every mapped frame, 
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    // Skip.
+    if(p->state == UNUSED)
+      continue;
+
+    // Look at each byte of this process' memory.
+    for(addr_t va1 = PGSIZE; va1 < p->sz; va1 += PGSIZE) {
+
+      // Skip invalid PTEs.
+      pte_t *pte1 = walkpgdir(p->pgdir, (void*)va1, 0);
+      if(pte1 == 0 || !(*pte1 & PTE_P) || !(*pte1 & PTE_U))
+        continue;
+
+      // Physical address for virtual page.
+      addr_t pa1 = PTE_ADDR(*pte1);
+
+      // Compare against ALL processes and ALL pages
+      struct proc *q;
+      for(q = ptable.proc; q < &ptable.proc[NPROC]; q++) {
+        // Skip.
+        if(q->state == UNUSED)
+          continue;
+
+        // Look at each byte of this process' memory.
+        for(addr_t va2 = PGSIZE; va2 < q->sz; va2 += PGSIZE) {
+
+          // Avoid comparing the exact same mapping.
+          if(p == q && va1 == va2)
+            continue;
+
+          // Get the second page's physical address.
+          pte_t *pte2 = walkpgdir(q->pgdir, (void*)va2, 0);
+          if(pte2 == 0 || !(*pte2 & PTE_P) || !(*pte2 & PTE_U))
+            continue;
+
+          // Second page PA stored here.
+          addr_t pa2 = PTE_ADDR(*pte2);
+
+          // Skip if already sharing the same frame.
+          if(pa1 == pa2)
+            continue;
+
+          // Fast reject via checksum + full memcmp
+          if(frames_are_identical(pa1, pa2)) {
+
+            // Increase refcount on kept frame
+            kretain(P2V(pa1));
+
+            // Release old frame
+            krelease(P2V(pa2));
+
+            // Rewrite PTE to point to shared frame
+            *pte2 = pa1 | PTE_FLAGS(*pte2);
+          }
+        }
+      }
+    }
+  }
   return;
 }
 
