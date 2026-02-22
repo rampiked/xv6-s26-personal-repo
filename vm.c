@@ -558,14 +558,19 @@ dedup(void *vstart, void *vend)
           // Fast reject via checksum + full memcmp
           if(frames_are_identical(pa1, pa2)) {
 
-            // Increase refcount on kept frame
+            // Shared frame bookkeeping
             kretain(P2V(pa1));
-
-            // Release old frame
             krelease(P2V(pa2));
 
-            // Rewrite PTE to point to shared frame
-            *pte2 = pa1 | PTE_FLAGS(*pte2);
+            // Mark FIRST mapping read-only
+            int flags1 = PTE_FLAGS(*pte1);
+            flags1 &= ~PTE_W;
+            *pte1 = pa1 | flags1;
+
+            // Mark SECOND mapping read-only
+            int flags2 = PTE_FLAGS(*pte2);
+            flags2 &= ~PTE_W;
+            *pte2 = pa1 | flags2;
           }
         }
       }
@@ -579,6 +584,43 @@ dedup(void *vstart, void *vend)
 int
 copyonwrite(char* v)
 {
-  cprintf("didn't copyonwrite anything\n");
-  return 0;
+  // Find PTE.
+  pte_t *pte = walkpgdir(proc->pgdir, v, 0);
+  // Make sure pte exists.
+  if(pte == 0)
+    return 0;
+  if(!(*pte & PTE_P))
+    return 0;
+  // Make sure PTE is not writeable.
+  if(*pte & PTE_W)
+    return 0;
+  // Convert to physical address.
+  addr_t pa = PTE_ADDR(*pte);
+  char *mem = P2V(pa);
+  // Get the reference count for the physical address.
+  int refs = krefcount(mem);
+
+  // Page is not shared -> Make it writeable.
+  if(refs == 1){
+    *pte |= PTE_W;
+    lcr3(v2p(proc->pgdir));   // flush TLB
+    return 1;
+  }
+
+  // Actual CoW
+  char *newmem = kalloc();
+  if(newmem == 0)
+    panic("copyonwrite: out of memory");
+
+  memmove(newmem, mem, PGSIZE);
+
+  // Drop reference to old shared frame
+  krelease(mem);
+
+  // Remap to private writable copy
+  *pte = V2P(newmem) | PTE_FLAGS(*pte) | PTE_W;
+
+  lcr3(v2p(proc->pgdir));     // flush TLB
+
+  return 1;
 }
